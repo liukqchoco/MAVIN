@@ -1,41 +1,3 @@
-window.HELP_IMPROVE_VIDEOJS = false;
-
-// More Works Dropdown Functionality
-function toggleMoreWorks() {
-    const dropdown = document.getElementById('moreWorksDropdown');
-    const button = document.querySelector('.more-works-btn');
-    
-    if (dropdown.classList.contains('show')) {
-        dropdown.classList.remove('show');
-        button.classList.remove('active');
-    } else {
-        dropdown.classList.add('show');
-        button.classList.add('active');
-    }
-}
-
-// Close dropdown when clicking outside
-document.addEventListener('click', function(event) {
-    const container = document.querySelector('.more-works-container');
-    const dropdown = document.getElementById('moreWorksDropdown');
-    const button = document.querySelector('.more-works-btn');
-    
-    if (container && !container.contains(event.target)) {
-        dropdown.classList.remove('show');
-        button.classList.remove('active');
-    }
-});
-
-// Close dropdown on escape key
-document.addEventListener('keydown', function(event) {
-    if (event.key === 'Escape') {
-        const dropdown = document.getElementById('moreWorksDropdown');
-        const button = document.querySelector('.more-works-btn');
-        dropdown.classList.remove('show');
-        button.classList.remove('active');
-    }
-});
-
 // Copy BibTeX to clipboard
 function copyBibTeX() {
     const bibtexElement = document.getElementById('bibtex-code');
@@ -46,7 +8,7 @@ function copyBibTeX() {
         navigator.clipboard.writeText(bibtexElement.textContent).then(function() {
             // Success feedback
             button.classList.add('copied');
-            copyText.textContent = 'Cop';
+            copyText.textContent = 'Copied!';
             
             setTimeout(function() {
                 button.classList.remove('copied');
@@ -63,7 +25,7 @@ function copyBibTeX() {
             document.body.removeChild(textArea);
             
             button.classList.add('copied');
-            copyText.textContent = 'Cop';
+            copyText.textContent = 'Copied!';
             setTimeout(function() {
                 button.classList.remove('copied');
                 copyText.textContent = 'Copy';
@@ -90,53 +52,121 @@ window.addEventListener('scroll', function() {
     }
 });
 
-// Video carousel autoplay when in view
-function setupVideoCarouselAutoplay() {
-    const carouselVideos = document.querySelectorAll('.results-carousel video');
-    
-    if (carouselVideos.length === 0) return;
-    
-    const observer = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-            const video = entry.target;
-            if (entry.isIntersecting) {
-                // Video is in view, play it
-                video.play().catch(e => {
-                    // Autoplay failed, probably due to browser policy
-                    console.log('Autoplay prevented:', e);
-                });
-            } else {
-                // Video is out of view, pause it
-                video.pause();
-            }
-        });
-    }, {
-        threshold: 0.5 // Trigger when 50% of the video is visible
-    });
-    
-    carouselVideos.forEach(video => {
-        observer.observe(video);
+function pauseAllMedia(except) {
+    document.querySelectorAll('video, audio').forEach(function(media) {
+        if (media !== except && !media.paused) {
+            media.pause();
+        }
     });
 }
 
-$(document).ready(function() {
-    // Check for click events on the navbar burger icon
+function activateTab(tabGroup, activeButton) {
+    const targetId = activeButton.dataset.tabTarget;
+    const buttons = tabGroup.querySelectorAll('.tab-button');
+    const panels = Array.from(tabGroup.children).filter(function(child) {
+        return child.classList.contains('tab-panel');
+    });
 
-    var options = {
-		slidesToScroll: 1,
-		slidesToShow: 1,
-		loop: true,
-		infinite: true,
-		autoplay: true,
-		autoplaySpeed: 5000,
-    }
+    buttons.forEach(function(button) {
+        const isActive = button === activeButton;
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-selected', String(isActive));
+    });
 
-	// Initialize all div with carousel class
-    var carousels = bulmaCarousel.attach('.carousel', options);
-	
-    bulmaSlider.attach();
-    
-    // Setup video autoplay for carousel
-    setupVideoCarouselAutoplay();
+    panels.forEach(function(panel) {
+        const isActive = panel.id === targetId;
+        panel.classList.toggle('is-active', isActive);
+        panel.hidden = !isActive;
+        if (!isActive) {
+            panel.querySelectorAll('video, audio').forEach(function(media) {
+                media.pause();
+            });
+        }
+    });
+}
 
-})
+function setupTabs() {
+    document.querySelectorAll('[data-tabs]').forEach(function(tabGroup) {
+        tabGroup.querySelectorAll('.tab-button').forEach(function(button) {
+            button.addEventListener('click', function() {
+                activateTab(tabGroup, button);
+            });
+        });
+    });
+}
+
+function annotatePromptText() {
+    const timeValue = '(?:\\d+(?:\\.\\d+)?|…)';
+    const tokenPattern = new RegExp(
+        '([“"][^”"\\n]+[”"])' +
+        '|(\\(speech\\s+' + timeValue + '[–-]' + timeValue + 's\\))' +
+        '|(\\(' + timeValue + '[–-]' + timeValue + 's\\))',
+        'g'
+    );
+
+    document.querySelectorAll('.prompt-panel p').forEach(function(paragraph) {
+        const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+        const textNodes = [];
+        let currentNode;
+
+        while ((currentNode = walker.nextNode())) {
+            if (!currentNode.parentElement.closest('.prompt-dialogue, .time-chip')) {
+                textNodes.push(currentNode);
+            }
+        }
+
+        textNodes.forEach(function(textNode) {
+            const text = textNode.nodeValue;
+            const matches = Array.from(text.matchAll(tokenPattern));
+            if (matches.length === 0) return;
+
+            const fragment = document.createDocumentFragment();
+            let cursor = 0;
+
+            matches.forEach(function(match) {
+                fragment.append(text.slice(cursor, match.index));
+                const annotation = document.createElement('span');
+                annotation.textContent = match[0];
+
+                if (match[1]) {
+                    annotation.className = 'prompt-dialogue';
+                } else if (match[2]) {
+                    annotation.className = 'time-chip speech-time';
+                } else {
+                    annotation.className = 'time-chip shot-time';
+                }
+
+                fragment.append(annotation);
+                cursor = match.index + match[0].length;
+            });
+
+            fragment.append(text.slice(cursor));
+            textNode.replaceWith(fragment);
+        });
+    });
+}
+
+function setupMediaExclusivity() {
+    document.querySelectorAll('video, audio').forEach(function(media) {
+        media.addEventListener('play', function() {
+            pauseAllMedia(media);
+        });
+    });
+}
+
+function setupVideoRestrictions() {
+    document.querySelectorAll('video').forEach(function(video) {
+        video.setAttribute('controlslist', 'nodownload noremoteplayback');
+        video.setAttribute('disablepictureinpicture', '');
+        video.addEventListener('contextmenu', function(event) {
+            event.preventDefault();
+        });
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    setupTabs();
+    annotatePromptText();
+    setupMediaExclusivity();
+    setupVideoRestrictions();
+});
